@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Arkanoid/breakout clone in Python + pygame-ce. Three modules, no package layout, no test suite, no build step, not a git repo. [FASES.md](FASES.md) records what each development phase added and why — update it when you finish a phase.
+Arkanoid/breakout clone in Python + pygame-ce. Three modules, no package layout, no test suite, no build step.
+
+Git repo on branch `main`, remote `origin` → `github.com/juangrajales81/Arkanoid`. [README.md](README.md) is the public landing page (what the game is, how to run it, controls); [FASES.md](FASES.md) records what each development phase added and why. Finishing a phase means updating **both**, plus this file when the architecture moved.
 
 ## Commands
 

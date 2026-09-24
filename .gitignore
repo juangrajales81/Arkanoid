@@ -1,1 +1,13 @@
-/__pycache__
+__pycache__/
+*.py[cod]
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Editores / SO
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
