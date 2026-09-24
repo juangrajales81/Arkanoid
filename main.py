@@ -1,4 +1,4 @@
-"""Arkanoid - Fase 5: sonido, partículas y sacudida de pantalla."""
+"""Arkanoid - Fase 6: récords en disco y transiciones entre niveles."""
 
 import random
 from enum import Enum, auto
@@ -19,17 +19,24 @@ from settings import (
     BALL_SLOW_FACTOR, MULTIBALL_EXTRA, MULTIBALL_SPREAD, MAX_LIVES,
     PARTICLE_BREAK_COUNT, PARTICLE_HIT_COUNT, PARTICLE_LOST_COUNT,
     MAX_PARTICLES, SHAKE_ON_BREAK, SHAKE_ON_LIFE_LOST,
+    PLAY_TOP, NAME_MAX_LENGTH, NAME_CHARS, HIGHLIGHT_COLOR,
+    SCREEN_INPUT_DELAY, LEVEL_INTRO_TIME, INTRO_ROW_DELAY, INTRO_DROP_TIME,
+    INTRO_DROP_DISTANCE, INTRO_FADE_TIME,
 )
 from audio import SoundBank
 from entities import Paddle, Ball, Brick, PowerUp, Particle
+from scores import ScoreTable
 
 
 class State(Enum):
     MENU = auto()
+    LEVEL_INTRO = auto()     # los ladrillos van cayendo; aún no se puede lanzar
     PLAYING = auto()
     PAUSED = auto()
     LEVEL_COMPLETE = auto()
     GAME_OVER = auto()
+    NAME_ENTRY = auto()      # la puntuación entra en la tabla: iniciales
+    SCORES = auto()          # tabla de récords
 
 
 def layout_for(level):
@@ -76,11 +83,25 @@ class Game:
         self.overlay.fill(OVERLAY_COLOR)
         # La zona de juego se dibuja aparte para poder sacudirla sin mover el HUD
         self.scene = pygame.Surface((WIDTH, HEIGHT))
+        # Negro opaco al que se le cambia la transparencia para los fundidos
+        self.fade = pygame.Surface((WIDTH, HEIGHT))
+        self.fade.fill((0, 0, 0))
         self.sounds = SoundBank()
+        self.scores = ScoreTable()
 
-        self.high_score = 0
-        self.state = State.MENU
+        self.name = ""              # iniciales que se están escribiendo
+        self.highlight = None       # puesto recién conseguido, para resaltarlo
         self.new_game()
+        self.set_state(State.MENU)
+
+    def set_state(self, state):
+        """Cambia de estado y pone a cero el reloj de lo que lleva en él.
+
+        Ese reloj mueve la entrada de nivel, el parpadeo del cursor y el
+        retardo antes de aceptar ESPACIO en los carteles.
+        """
+        self.state = state
+        self.state_time = 0.0
 
     # ---------- Control de partida ----------
     def new_game(self):
@@ -90,6 +111,7 @@ class Game:
         self.start_level()
 
     def start_level(self):
+        """Prepara el nivel y abre su entrada animada."""
         self.paddle = Paddle()
         # Desde la fase 3 puede haber varias pelotas en juego a la vez
         self.balls = [Ball(self.paddle)]
@@ -100,6 +122,25 @@ class Game:
         self.shake_power = 0.0
         self.shake_time = 0.0
         self.shake_total = 0.0
+        self.intro_rows = len(layout_for(self.level)[1])
+        self.set_state(State.LEVEL_INTRO)
+
+    def finish_intro(self):
+        self.set_state(State.PLAYING)
+        self.sounds.play("ready")
+
+    def finish_game(self):
+        """Tras la partida: a escribir el nombre si entra en la tabla, si no al menú."""
+        if self.scores.rank_for(self.score) is None:
+            self.set_state(State.MENU)
+        else:
+            self.name = self.scores.last_name
+            self.set_state(State.NAME_ENTRY)
+
+    def save_score(self):
+        self.highlight = self.scores.add(self.name, self.score, self.level)
+        self.sounds.play("record")
+        self.set_state(State.SCORES)
 
     def ball_speed(self):
         """Velocidad que deben tener las pelotas ahora mismo."""
@@ -135,8 +176,7 @@ class Game:
         self.lives -= 1
         self.add_shake(*SHAKE_ON_LIFE_LOST)
         if self.lives <= 0:
-            self.high_score = max(self.high_score, self.score)
-            self.state = State.GAME_OVER
+            self.set_state(State.GAME_OVER)
             self.sounds.play("over")
         else:
             self.sounds.play("lose")
@@ -259,47 +299,77 @@ class Game:
 
             # Si la ventana pierde el foco en plena partida, pausamos
             if event.type == pygame.WINDOWFOCUSLOST and self.state == State.PLAYING:
-                self.state = State.PAUSED
+                self.set_state(State.PAUSED)
 
             if event.type != pygame.KEYDOWN:
                 continue
             key = event.key
 
-            # El silencio se conmuta en cualquier estado
+            # Escribiendo el nombre, las teclas son letras: M no silencia
+            if self.state == State.NAME_ENTRY:
+                self.handle_name_key(event)
+                continue
+
+            # El silencio se conmuta en cualquier otro estado
             if key == pygame.K_m:
                 self.sounds.toggle_mute()
                 continue
 
+            # Los carteles ignoran ESPACIO un momento tras aparecer
+            ready = self.state_time >= SCREEN_INPUT_DELAY
+
             if self.state == State.MENU:
                 if key == pygame.K_SPACE:
                     self.new_game()
-                    self.state = State.PLAYING
+                elif key == pygame.K_t:
+                    self.highlight = None
+                    self.set_state(State.SCORES)
                 elif key == pygame.K_ESCAPE:
                     return False
+
+            elif self.state == State.LEVEL_INTRO:
+                if key == pygame.K_SPACE:
+                    self.finish_intro()
 
             elif self.state == State.PLAYING:
                 if key == pygame.K_SPACE:
                     self.launch_balls()
                 elif key in (pygame.K_p, pygame.K_ESCAPE):
-                    self.state = State.PAUSED
+                    self.set_state(State.PAUSED)
 
             elif self.state == State.PAUSED:
                 if key in (pygame.K_p, pygame.K_ESCAPE):
-                    self.state = State.PLAYING
+                    self.set_state(State.PLAYING)
                 elif key == pygame.K_q:
-                    self.high_score = max(self.high_score, self.score)
-                    self.state = State.MENU
+                    self.finish_game()
 
             elif self.state == State.LEVEL_COMPLETE:
-                if key == pygame.K_SPACE:
+                if key == pygame.K_SPACE and ready:
                     self.level += 1
                     self.start_level()
-                    self.state = State.PLAYING
 
             elif self.state == State.GAME_OVER:
-                if key == pygame.K_SPACE:
-                    self.state = State.MENU
+                if key == pygame.K_SPACE and ready:
+                    self.finish_game()
+
+            elif self.state == State.SCORES:
+                if key in (pygame.K_SPACE, pygame.K_ESCAPE,
+                           pygame.K_RETURN, pygame.K_KP_ENTER):
+                    self.set_state(State.MENU)
         return True
+
+    def handle_name_key(self, event):
+        """Edición de las iniciales: letras y cifras, borrar, y ENTER para guardar."""
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            if self.name:
+                self.save_score()
+        elif event.key == pygame.K_BACKSPACE:
+            self.name = self.name[:-1]
+        else:
+            char = event.unicode.upper()
+            if char and char in NAME_CHARS and len(self.name) < NAME_MAX_LENGTH:
+                self.name += char
+                self.sounds.play("type")
 
     def read_direction(self):
         keys = pygame.key.get_pressed()
@@ -317,6 +387,16 @@ class Game:
         if self.state != State.PAUSED:
             self.update_particles(dt)
             self.shake_time = max(0.0, self.shake_time - dt)
+        self.state_time += dt
+        # En la entrada del nivel la paleta ya se mueve (y la pelota pegada la
+        # sigue), pero no se puede lanzar hasta que acaben de caer los ladrillos
+        if self.state == State.LEVEL_INTRO:
+            self.paddle.update(dt, direction)
+            for ball in self.balls:
+                ball.update(dt, self.paddle, self.bricks)
+            if self.state_time >= LEVEL_INTRO_TIME:
+                self.finish_intro()
+            return
         # La simulación, en cambio, solo avanza mientras se juega
         if self.state != State.PLAYING:
             return
@@ -326,7 +406,7 @@ class Game:
         self.update_powerups(dt)
         # Si la última pelota se perdió con el último ladrillo, manda el game over
         if self.state == State.PLAYING and self.level_cleared():
-            self.state = State.LEVEL_COMPLETE
+            self.set_state(State.LEVEL_COMPLETE)
             self.sounds.play("level")
 
     def update_balls(self, dt):
@@ -353,8 +433,10 @@ class Game:
             self.lose_life()
 
     # ---------- Dibujo ----------
-    def draw_text(self, text, font, center, color=TEXT_COLOR):
+    def draw_text(self, text, font, center, color=TEXT_COLOR, alpha=255):
         surf = font.render(text, True, color)
+        if alpha < 255:
+            surf.set_alpha(alpha)
         self.screen.blit(surf, surf.get_rect(center=center))
 
     def draw_hud(self):
@@ -397,8 +479,15 @@ class Game:
     def draw_playfield(self):
         """Dibuja la zona de juego aparte y la vuelca aplicando la sacudida."""
         self.scene.fill(BG_COLOR)
-        for brick in self.bricks:
-            brick.draw(self.scene)
+        if self.state == State.LEVEL_INTRO:
+            # Mientras caen no deben asomar por encima del marcador
+            self.scene.set_clip(pygame.Rect(0, PLAY_TOP, WIDTH, HEIGHT - PLAY_TOP))
+            for brick in self.bricks:
+                brick.draw(self.scene, self.intro_drop(brick))
+            self.scene.set_clip(None)
+        else:
+            for brick in self.bricks:
+                brick.draw(self.scene)
         for capsule in self.powerups:
             capsule.draw(self.scene)
         for particle in self.particles:
@@ -408,6 +497,32 @@ class Game:
             ball.draw(self.scene)
         self.screen.blit(self.scene, self.shake_offset())
 
+    def intro_drop(self, brick):
+        """Cuánto le falta a un ladrillo por caer en la entrada del nivel.
+
+        Las filas caen de abajo arriba: así ninguna atraviesa a otra que ya
+        haya aterrizado.
+        """
+        row = round((brick.rect.y - BRICK_TOP) / (BRICK_HEIGHT + BRICK_GAP))
+        delay = (self.intro_rows - 1 - row) * INTRO_ROW_DELAY
+        progress = max(0.0, min(1.0, (self.state_time - delay) / INTRO_DROP_TIME))
+        eased = 1 - (1 - progress) ** 3          # frena al llegar
+        return -round((1 - eased) * INTRO_DROP_DISTANCE)
+
+    def draw_intro(self):
+        """Cartel del nivel que se desvanece, y fundido desde negro al principio."""
+        t = self.state_time
+        fade_out = LEVEL_INTRO_TIME - INTRO_FADE_TIME
+        alpha = 255 if t < fade_out else round(255 * (LEVEL_INTRO_TIME - t) / INTRO_FADE_TIME)
+        alpha = max(0, min(255, alpha))
+        self.draw_text(f"NIVEL {self.level}", self.big_font,
+                       (WIDTH / 2, HEIGHT / 2 + 20), alpha=alpha)
+        self.draw_text(layout_for(self.level)[0], self.font,
+                       (WIDTH / 2, HEIGHT / 2 + 70), DIM_TEXT_COLOR, alpha)
+        if t < INTRO_FADE_TIME:
+            self.fade.set_alpha(round(255 * (1 - t / INTRO_FADE_TIME)))
+            self.screen.blit(self.fade, (0, 0))
+
     def draw_overlay(self, title, lines):
         """Oscurece el juego y muestra un título con líneas de ayuda."""
         self.screen.blit(self.overlay, (0, 0))
@@ -415,6 +530,59 @@ class Game:
         self.draw_text(title, self.big_font, (WIDTH / 2, cy))
         for i, line in enumerate(lines):
             self.draw_text(line, self.font, (WIDTH / 2, cy + 70 + i * 34), DIM_TEXT_COLOR)
+
+    def hint(self, text):
+        """Línea de ayuda de un cartel: aparece cuando ya acepta la tecla."""
+        return [text] if self.state_time >= SCREEN_INPUT_DELAY else []
+
+    def draw_name_entry(self):
+        rank = self.scores.rank_for(self.score)
+        self.screen.blit(self.overlay, (0, 0))
+        title = "¡NUEVO RÉCORD!" if rank == 0 else "¡A LA TABLA!"
+        self.draw_text(title, self.big_font, (WIDTH / 2, 255), HIGHLIGHT_COLOR)
+        self.draw_text(f"Puesto {rank + 1} · {self.score} puntos · nivel {self.level}",
+                       self.font, (WIDTH / 2, 310))
+        self.draw_text("Escribe tus iniciales", self.font, (WIDTH / 2, 355), DIM_TEXT_COLOR)
+
+        # Una casilla por letra; el cursor parpadea en la siguiente libre
+        box_w, gap = 52, 14
+        x0 = WIDTH / 2 - (NAME_MAX_LENGTH * box_w + (NAME_MAX_LENGTH - 1) * gap) / 2
+        cursor_on = int(self.state_time * 2.5) % 2 == 0
+        for i in range(NAME_MAX_LENGTH):
+            cx = x0 + i * (box_w + gap) + box_w / 2
+            if i < len(self.name):
+                self.draw_text(self.name[i], self.big_font, (cx, 410), HIGHLIGHT_COLOR)
+            line_color = (HIGHLIGHT_COLOR if i == len(self.name) and cursor_on
+                          else DIM_TEXT_COLOR)
+            pygame.draw.line(self.screen, line_color,
+                             (cx - box_w / 2, 440), (cx + box_w / 2, 440), 3)
+
+        self.draw_text("ENTER: guardar   RETROCESO: borrar", self.font,
+                       (WIDTH / 2, 490), DIM_TEXT_COLOR)
+
+    def draw_scores(self):
+        self.draw_text("RÉCORDS", self.big_font, (WIDTH / 2, 80))
+        if not self.scores.entries:
+            self.draw_text("Todavía no hay ninguna puntuación", self.font,
+                           (WIDTH / 2, 260), DIM_TEXT_COLOR)
+        # Columnas (x, anclaje): puesto, iniciales, puntos y nivel
+        columns = ((265, "midright"), (295, "midleft"),
+                   (480, "midright"), (545, "center"))
+        for label, (x, anchor) in zip(("", "NOMBRE", "PUNTOS", "NIVEL"), columns):
+            surf = self.small_font.render(label, True, DIM_TEXT_COLOR)
+            self.screen.blit(surf, surf.get_rect(**{anchor: (x, 140)}))
+        for i, entry in enumerate(self.scores.entries):
+            y = 175 + i * 32
+            color = HIGHLIGHT_COLOR if i == self.highlight else TEXT_COLOR
+            cells = (f"{i + 1}.", entry.name, str(entry.score), str(entry.level))
+            for text, (x, anchor) in zip(cells, columns):
+                surf = self.font.render(text, True, color)
+                self.screen.blit(surf, surf.get_rect(**{anchor: (x, y)}))
+        if not self.scores.persistent:
+            self.draw_text("No se pueden guardar en disco: solo duran esta sesión",
+                           self.small_font, (WIDTH / 2, HEIGHT - 70), DIM_TEXT_COLOR)
+        self.draw_text("ESPACIO: volver al menú", self.font,
+                       (WIDTH / 2, HEIGHT - 40), DIM_TEXT_COLOR)
 
     def draw_menu(self):
         self.draw_text("ARKANOID", self.big_font, (WIDTH / 2, 200))
@@ -426,9 +594,9 @@ class Game:
         self.draw_powerup_legend(425)
         self.draw_text("Los plateados y dorados aguantan varios golpes; los grises no se rompen",
                        self.small_font, (WIDTH / 2, 465), DIM_TEXT_COLOR)
-        if self.high_score:
-            self.draw_text(f"Récord: {self.high_score}", self.font,
-                           (WIDTH / 2, 510), DIM_TEXT_COLOR)
+        best = self.scores.best()
+        records = f"Récord: {best}   ·   T: ver la tabla" if best else "T: tabla de récords"
+        self.draw_text(records, self.font, (WIDTH / 2, 510), DIM_TEXT_COLOR)
 
     def draw(self):
         self.screen.fill(BG_COLOR)
@@ -436,24 +604,37 @@ class Game:
         if self.state == State.MENU:
             self.draw_menu()
             return
+        if self.state == State.SCORES:
+            self.draw_scores()
+            return
 
         self.draw_playfield()
         self.draw_hud()
         self.draw_active_effects()
 
-        if self.state == State.PLAYING and any(ball.stuck for ball in self.balls):
+        if self.state == State.LEVEL_INTRO:
+            self.draw_intro()
+        elif self.state == State.PLAYING and any(ball.stuck for ball in self.balls):
             self.draw_text("ESPACIO para lanzar", self.font, (WIDTH / 2, HEIGHT / 2 + 80))
         elif self.state == State.PAUSED:
-            self.draw_overlay("PAUSA", ["P o ESC: continuar", "Q: volver al menú"])
+            self.draw_overlay("PAUSA", ["P o ESC: continuar", "Q: terminar la partida"])
         elif self.state == State.LEVEL_COMPLETE:
             self.draw_overlay(f"¡NIVEL {self.level} COMPLETADO!",
                               [f"Puntos: {self.score}",
-                               f"Siguiente: {layout_for(self.level + 1)[0]}",
-                               "ESPACIO: continuar"])
+                               f"Siguiente: {layout_for(self.level + 1)[0]}"]
+                              + self.hint("ESPACIO: continuar"))
         elif self.state == State.GAME_OVER:
-            self.draw_overlay("GAME OVER",
-                              [f"Puntos: {self.score}    Récord: {self.high_score}",
-                               "ESPACIO: volver al menú"])
+            rank = self.scores.rank_for(self.score)
+            if rank is None:
+                lines = [f"Puntos: {self.score}    Récord: {self.scores.best()}"]
+                lines += self.hint("ESPACIO: volver al menú")
+            else:
+                verdict = "¡NUEVO RÉCORD!" if rank == 0 else f"Entras en la tabla: puesto {rank + 1}"
+                lines = [f"Puntos: {self.score}", verdict]
+                lines += self.hint("ESPACIO: escribir tu nombre")
+            self.draw_overlay("GAME OVER", lines)
+        elif self.state == State.NAME_ENTRY:
+            self.draw_name_entry()
 
     # ---------- Bucle principal ----------
     def run(self):

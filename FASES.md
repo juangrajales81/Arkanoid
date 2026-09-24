@@ -231,9 +231,88 @@ acusaba el impacto.
 
 ---
 
+## Fase 6 — Récords en disco y transiciones
+
+**Objetivo:** que una buena partida deje huella y que pasar de nivel no sea un corte
+seco. Hasta aquí el récord se perdía al cerrar la ventana.
+
+### Qué ve el jugador
+
+- **Tabla de los 10 mejores**, con iniciales, puntos y nivel alcanzado. Se abre desde
+  el menú con **T** y se guarda entre sesiones.
+- Si la partida entra en la tabla, el game over lo anuncia (*¡NUEVO RÉCORD!* o *Entras
+  en la tabla: puesto N*) y pasa a una pantalla para **escribir hasta tres iniciales**
+  al estilo recreativa: letras, cifras y Ñ, RETROCESO para borrar, ENTER para guardar.
+  Propone las últimas iniciales usadas. Al guardar se muestra la tabla con la fila
+  nueva resaltada en amarillo.
+- **Terminar desde la pausa (Q) también cuenta**: si la puntuación entra, se pide el
+  nombre igual.
+- **Entrada de nivel:** la pantalla se funde desde negro, los ladrillos caen fila a
+  fila de abajo arriba y aparece el cartel `NIVEL 3 · FORTALEZA`. La paleta ya se
+  puede mover mientras tanto; al terminar suena un aviso y se puede lanzar. ESPACIO
+  se la salta.
+- Los carteles de nivel completado y game over **ignoran ESPACIO durante 0,6 s**, y la
+  línea «ESPACIO: …» no aparece hasta que la tecla ya funciona. Quien venía
+  machacando la barra para lanzar ya no se salta el cartel sin verlo.
+
+### Qué cambió por dentro
+
+- **Nuevo módulo [`scores.py`](scores.py)** con `ScoreTable`: carga, inserta y guarda.
+  El archivo es un JSON en la carpeta de datos que da SDL
+  (`pygame.system.get_pref_path()`; en Windows, `%APPDATA%\arkanoid\arkanoid\records.json`),
+  no junto al código, para que funcione aunque el juego esté en una carpeta de solo
+  lectura. Por eso no hace falta tocar `.gitignore`.
+- **La persistencia sigue la regla del sonido: nunca tumba el juego.** Un archivo que
+  falta, un JSON corrupto o entradas con tipos raros dejan la tabla vacía (o solo con
+  las entradas válidas). Si no se puede escribir, `persistent` pasa a `False`, la tabla
+  sigue en memoria y la pantalla de récords lo avisa.
+- Se guarda escribiendo un `.tmp` y renombrándolo con `os.replace()`: un corte a mitad
+  de escritura no deja el archivo a medias.
+- **Los empates quedan por detrás** de quien ya tenía esa puntuación, como en los
+  recreativos: `rank_for()` cuenta las entradas con puntuación `>=`.
+- **`high_score` desaparece de `Game`.** El récord es `self.scores.best()`: una sola
+  fuente de verdad en lugar de un número que había que acordarse de actualizar en dos
+  sitios (game over y salir desde pausa).
+- **Tres estados nuevos:** `LEVEL_INTRO`, `NAME_ENTRY` y `SCORES`. Todos los cambios de
+  estado pasan ahora por `set_state()`, que pone a cero `state_time`. Ese único reloj
+  mueve la caída de los ladrillos, el cartel que se desvanece, el cursor que parpadea
+  y el retardo de los carteles, sin un temporizador por cada cosa.
+- **`start_level()` deja el juego en `LEVEL_INTRO`**, así que tanto la partida nueva
+  como el paso de nivel entran por la misma animación sin repetir código.
+- **La caída es solo dibujo.** `Brick.draw()` acepta un `dy` que desplaza el dibujo,
+  pero el `Rect` del ladrillo nunca se mueve. Las filas caen de abajo arriba para que
+  ninguna atraviese a otra que ya aterrizó, y la escena se recorta a la zona de juego
+  para que no asomen por detrás del marcador.
+- **M no silencia mientras se escribe el nombre**: en `NAME_ENTRY` todas las teclas son
+  letras y `handle_name_key()` las atiende antes que el atajo global.
+- Tres sonidos nuevos en `SOUND_RECIPES`, sin tocar `audio.py`: `ready` (fin de la
+  entrada), `record` (puntuación guardada) y `type` (cada letra).
+
+### Cómo se verificó
+
+- `ScoreTable` suelta: orden, empates detrás, tope de 10 (una puntuación igual a la
+  última no entra, una más alta sí), y que al recargar el archivo se recupera la misma
+  tabla y las últimas iniciales, sin `.tmp` sobrante.
+- Archivos rotos: JSON inválido, una lista en vez de un objeto, `scores` que no es una
+  lista y entradas mezcladas con basura → tabla vacía o solo con las válidas, sin
+  excepción. Con una carpeta como ruta de guardado, y sin carpeta de datos:
+  `persistent = False` y la partida sigue.
+- Recorrido completo con eventos de teclado simulados: menú → entrada de nivel (la
+  paleta se mueve y la pelota pegada la sigue; todas las filas han aterrizado antes de
+  que acabe) → nivel completado (ESPACIO ignorado al principio) → entrada del nivel 2
+  saltada con ESPACIO → game over → nombre (M escribe una M y no silencia; ENTER con el
+  nombre vacío no guarda) → tabla con la fila resaltada → menú. Salir con Q en pausa
+  con 0 puntos va al menú; con puntos que entran, a escribir el nombre con las
+  iniciales anteriores ya propuestas.
+- Capturas sin ventana de la entrada de nivel, el game over, la pantalla de nombre, la
+  tabla y el menú para revisar la maqueta.
+- Jugador automático durante 3 minutos pasando por las entradas y el cambio de nivel,
+  sin errores.
+
+---
+
 ## Ideas para fases siguientes
 
-- **Fase 6 — Persistencia y remate:** guardar el récord en disco, tabla de mejores
-  puntuaciones, transiciones entre niveles.
 - **Fase 7 — Control y accesibilidad:** manejar la paleta con el ratón, ajustar el
-  volumen desde el menú, recordar si el sonido quedó silenciado.
+  volumen desde el menú, recordar si el sonido quedó silenciado (puede ir en un archivo
+  de preferencias junto al de récords).

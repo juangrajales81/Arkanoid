@@ -74,30 +74,33 @@ class Brick:
         factor = 1 - BRICK_DAMAGE_DARKEN * wear
         return tuple(round(c * factor) for c in self.color)
 
-    def draw(self, surface):
+    def draw(self, surface, dy=0):
+        """dy desplaza solo el dibujo (la caída de la entrada de nivel); el
+        ladrillo sigue chocando en su sitio."""
+        rect = self.rect.move(0, dy)
         color = self._damaged_color()
-        pygame.draw.rect(surface, color, self.rect, border_radius=3)
+        pygame.draw.rect(surface, color, rect, border_radius=3)
         # Pequeño brillo en el borde superior para dar volumen
         highlight = tuple(min(255, c + 70) for c in color)
         pygame.draw.line(
             surface, highlight,
-            (self.rect.left + 3, self.rect.top + 2),
-            (self.rect.right - 4, self.rect.top + 2), 2,
+            (rect.left + 3, rect.top + 2),
+            (rect.right - 4, rect.top + 2), 2,
         )
         if not self.breakable:
             # Borde marcado: se lee de un vistazo que ese no se rompe
-            pygame.draw.rect(surface, highlight, self.rect, 2, border_radius=3)
+            pygame.draw.rect(surface, highlight, rect, 2, border_radius=3)
         elif self.max_hits > 1:
-            self._draw_pips(surface)
+            self._draw_pips(surface, rect)
 
-    def _draw_pips(self, surface):
+    def _draw_pips(self, surface, rect):
         """Un punto por cada golpe que aún aguanta."""
         gap = 8
-        cx = self.rect.centerx - gap * (self.hits - 1) / 2
+        cx = rect.centerx - gap * (self.hits - 1) / 2
         for i in range(self.hits):
             pygame.draw.circle(
                 surface, BRICK_PIP_COLOR,
-                (round(cx + i * gap), self.rect.centery + 3), 2)
+                (round(cx + i * gap), rect.centery + 3), 2)
 
 
 #: Lo que `Ball.update()` le cuenta a `Game` de este fotograma:

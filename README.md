@@ -3,7 +3,8 @@
 Clon de Arkanoid / Breakout hecho en Python con [pygame-ce](https://pyga.me/).
 Paleta, pelota, ladrillos de varios tipos, cápsulas de power-up y cinco diseños de
 nivel que se repiten en bucle subiendo la dificultad. Con efectos de sonido, trozos
-que saltan al romper y sacudida de pantalla.
+que saltan al romper, sacudida de pantalla y una tabla de récords que se guarda entre
+partidas.
 
 Una sola dependencia (pygame-ce) y ningún archivo de audio: **los sonidos se
 sintetizan al arrancar**.
@@ -30,8 +31,11 @@ python main.py
 | ESPACIO | Lanzar la pelota / empezar / continuar |
 | P o ESC | Pausa |
 | M | Silenciar / activar el sonido |
-| Q (en pausa) | Volver al menú |
+| Q (en pausa) | Terminar la partida |
+| T (en el menú) | Ver la tabla de récords |
 | ESC (en el menú) | Salir |
+
+Al empezar cada nivel los ladrillos caen en su sitio; ESPACIO se salta la animación.
 
 ## Cómo se juega
 
@@ -73,6 +77,14 @@ Perder una vida cancela todos los efectos activos.
 Cinco diseños —CLÁSICO, PIRÁMIDE, FORTALEZA, DAMERO y TÚNEL— que se recorren en orden
 y vuelven a empezar. Cada nivel añade un 10 % de velocidad a la pelota.
 
+### Récords
+
+Las 10 mejores puntuaciones se guardan con tres iniciales, los puntos y el nivel
+alcanzado. Si tu partida entra en la tabla, al terminar se te pide escribir tus
+iniciales (ENTER para guardar). La tabla vive en la carpeta de datos del usuario
+—en Windows, `%APPDATA%\arkanoid\arkanoid\records.json`—; borra ese archivo para
+empezar de cero.
+
 ## Estructura
 
 | Archivo | Qué contiene |
@@ -80,6 +92,7 @@ y vuelven a empezar. Cada nivel añade un 10 % de velocidad a la pelota.
 | [`settings.py`](settings.py) | Todos los ajustes: tamaños, velocidades, colores, tipos de ladrillo, diseños de nivel y recetas de sonido |
 | [`entities.py`](entities.py) | `Paddle`, `Brick`, `Ball`, `PowerUp` y `Particle`: se mueven, chocan y se dibujan |
 | [`audio.py`](audio.py) | Sintetiza los efectos de sonido en memoria y los reproduce |
+| [`scores.py`](scores.py) | Tabla de récords: la carga, la ordena y la guarda en disco |
 | [`main.py`](main.py) | `Game`: bucle principal, estados, puntuación, vidas y reglas |
 
 Para crear un nivel nuevo no hace falta tocar código: basta con añadir un diseño de
@@ -87,6 +100,7 @@ texto a `LEVEL_LAYOUTS` en `settings.py`. Los sonidos funcionan igual: cada uno 
 receta de tonos en `SOUND_RECIPES`.
 
 Si el equipo no tiene tarjeta de sonido, el juego arranca igual y se juega en silencio.
+Si el archivo de récords no se puede leer o escribir, la tabla dura solo esa sesión.
 
 ## Desarrollo por fases
 

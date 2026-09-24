@@ -185,6 +185,15 @@ SOUND_RECIPES = {
                  {"freq": 330, "ms": 170, "shape": "triangle", "decay": 1.5},
                  {"freq": 262, "ms": 170, "shape": "triangle", "decay": 1.5},
                  {"freq": 196, "ms": 420, "shape": "triangle", "decay": 2.5}],
+    # Fase 6: los ladrillos ya han caído y se puede lanzar
+    "ready":    [{"freq": 392, "ms": 70, "shape": "triangle", "decay": 3},
+                 {"freq": 784, "ms": 150, "shape": "triangle", "decay": 3}],
+    # Fase 6: entra una puntuación en la tabla
+    "record":   [{"freq": 784, "ms": 80, "shape": "triangle", "decay": 2},
+                 {"freq": 988, "ms": 80, "shape": "triangle", "decay": 2},
+                 {"freq": 1175, "ms": 80, "shape": "triangle", "decay": 2},
+                 {"freq": 1568, "ms": 300, "shape": "triangle", "decay": 3}],
+    "type":     [{"freq": 1200, "ms": 25, "vol": 0.5, "decay": 8}],
 }
 
 # Partículas: trocitos que saltan del ladrillo
@@ -200,3 +209,27 @@ MAX_PARTICLES = 400          # tope de seguridad
 # Sacudida de pantalla: (píxeles, segundos)
 SHAKE_ON_BREAK = (2.5, 0.08)
 SHAKE_ON_LIFE_LOST = (9, 0.35)
+
+# ---------------------------------------------------------------------------
+# Fase 6: récords en disco y transiciones entre niveles
+# ---------------------------------------------------------------------------
+# La tabla se guarda en la carpeta de datos del usuario que da SDL
+# (en Windows, %APPDATA%\arkanoid\arkanoid\records.json).
+SCORES_ORG = "arkanoid"
+SCORES_APP = "arkanoid"
+SCORES_FILE = "records.json"
+SCORES_TABLE_SIZE = 10
+NAME_MAX_LENGTH = 3            # iniciales, como en los recreativos
+NAME_CHARS = "ABCDEFGHIJKLMNÑOPQRSTUVWXYZ0123456789"   # lo que se puede escribir
+HIGHLIGHT_COLOR = (241, 196, 15)   # la puntuación recién conseguida en la tabla
+
+# Tiempo mínimo en un cartel antes de aceptar ESPACIO, para que el jugador que
+# venía machacando la barra no se lo salte sin verlo
+SCREEN_INPUT_DELAY = 0.6
+
+# Entrada de nivel: los ladrillos caen fila a fila, de abajo arriba
+LEVEL_INTRO_TIME = 1.9         # segundos hasta que se puede lanzar
+INTRO_ROW_DELAY = 0.09         # desfase entre filas
+INTRO_DROP_TIME = 0.45         # lo que tarda en caer una fila
+INTRO_DROP_DISTANCE = 260      # píxeles desde los que cae
+INTRO_FADE_TIME = 0.35         # fundido desde negro al empezar el nivel
