@@ -2,7 +2,11 @@
 
 Clon de Arkanoid / Breakout hecho en Python con [pygame-ce](https://pyga.me/).
 Paleta, pelota, ladrillos de varios tipos, cápsulas de power-up y cinco diseños de
-nivel que se repiten en bucle subiendo la dificultad.
+nivel que se repiten en bucle subiendo la dificultad. Con efectos de sonido, trozos
+que saltan al romper y sacudida de pantalla.
+
+Una sola dependencia (pygame-ce) y ningún archivo de audio: **los sonidos se
+sintetizan al arrancar**.
 
 ![Captura del juego](docs/captura.png)
 
@@ -25,6 +29,7 @@ python main.py
 | ← → o A / D | Mover la paleta |
 | ESPACIO | Lanzar la pelota / empezar / continuar |
 | P o ESC | Pausa |
+| M | Silenciar / activar el sonido |
 | Q (en pausa) | Volver al menú |
 | ESC (en el menú) | Salir |
 
@@ -72,12 +77,16 @@ y vuelven a empezar. Cada nivel añade un 10 % de velocidad a la pelota.
 
 | Archivo | Qué contiene |
 |---|---|
-| [`settings.py`](settings.py) | Todos los ajustes: tamaños, velocidades, colores, tipos de ladrillo y diseños de nivel |
-| [`entities.py`](entities.py) | `Paddle`, `Brick`, `Ball` y `PowerUp`: se mueven, chocan y se dibujan |
+| [`settings.py`](settings.py) | Todos los ajustes: tamaños, velocidades, colores, tipos de ladrillo, diseños de nivel y recetas de sonido |
+| [`entities.py`](entities.py) | `Paddle`, `Brick`, `Ball`, `PowerUp` y `Particle`: se mueven, chocan y se dibujan |
+| [`audio.py`](audio.py) | Sintetiza los efectos de sonido en memoria y los reproduce |
 | [`main.py`](main.py) | `Game`: bucle principal, estados, puntuación, vidas y reglas |
 
 Para crear un nivel nuevo no hace falta tocar código: basta con añadir un diseño de
-texto a `LEVEL_LAYOUTS` en `settings.py`.
+texto a `LEVEL_LAYOUTS` en `settings.py`. Los sonidos funcionan igual: cada uno es una
+receta de tonos en `SOUND_RECIPES`.
+
+Si el equipo no tiene tarjeta de sonido, el juego arranca igual y se juega en silencio.
 
 ## Desarrollo por fases
 

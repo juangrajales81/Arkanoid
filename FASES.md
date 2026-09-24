@@ -169,9 +169,71 @@ velocidad.
 
 ---
 
+## Fase 5 — Sonido y efectos visuales
+
+**Objetivo:** que golpear algo se *sienta*. Hasta aquí el juego era mudo y nada
+acusaba el impacto.
+
+### Qué ve (y oye) el jugador
+
+- **Nueve efectos de sonido:** lanzamiento, rebote en la paleta, rebote en pared,
+  golpe seco en ladrillo duro, rotura, cápsula recogida, vida perdida, nivel
+  completado y game over. **M** silencia y vuelve a activar en cualquier momento.
+- **Partículas:** al romper un ladrillo saltan diez trocitos de su color, con
+  gravedad, que se apagan fundiéndose con el fondo. Golpear un ladrillo duro sin
+  romperlo suelta tres chispas, y perder la pelota lanza un chorro blanco desde el
+  borde inferior.
+- **Sacudida de pantalla:** corta y seca al romper (2,5 px), larga y fuerte al perder
+  una vida (9 px). Solo tiembla la zona de juego; el marcador se queda quieto.
+
+### Qué cambió por dentro
+
+- **El sonido se sintetiza, no se distribuye.** No hay carpeta `assets/` ni
+  dependencia nueva: `SOUND_RECIPES` describe cada efecto como una lista de tramos
+  (frecuencia, barrido opcional, duración, forma de onda, volumen y caída) y el nuevo
+  módulo [`audio.py`](audio.py) los convierte en WAV de 16 bits **en memoria** con
+  `wave` + `io.BytesIO`, que es lo que carga pygame. Tarda 0,2 s al arrancar. Retocar
+  un sonido es editar `settings.py`, no reemplazar un archivo.
+- **Sin tarjeta de sonido el juego funciona igual.** `SoundBank` captura el error al
+  abrir el mezclador, se queda en `enabled = False` y `play()` no hace nada. `Game`
+  nunca llama a `pygame.mixer` directamente.
+- **La frontera de la fase 2 aguantó.** Los rebotes contra pared y paleta ocurren
+  dentro de `Ball.update()`, que no puede reproducir sonidos. En vez de dejar que la
+  pelota hablara con el mezclador, su informe pasó de ser la tupla `(golpeados,
+  perdida)` a un `BallReport(bricks, lost, bounces)`: la pelota dice *«he chocado con
+  una pared»* y `Game` decide que eso suena. Los rebotes se agrupan en un conjunto por
+  fotograma, así diez pelotas contra la pared no suenan diez veces.
+- **La sacudida obliga a dibujar en dos pasos:** la zona de juego se pinta en una
+  superficie aparte (`self.scene`) y se vuelca desplazada; el HUD se dibuja después
+  directamente sobre la pantalla. Como ambas parten de `BG_COLOR`, la franja que
+  destapa el desplazamiento no se nota.
+- **`update()` pasó a tener dos niveles:** la decoración (partículas y calma de la
+  sacudida) corre en todos los estados **menos en pausa**; la simulación, solo en
+  `PLAYING`. Sin esa separación, una sacudida iniciada en el fotograma en que se pierde
+  la última vida se quedaría temblando para siempre detrás del cartel de game over.
+- `Particle` vive en `entities.py` pero es el bicho más tonto de todos: no choca con
+  nada y se apaga solo. Hay un tope (`MAX_PARTICLES`) por seguridad.
+
+### Cómo se verificó
+
+- Las nueve recetas generan sonido real: se comprobó duración, pico de señal y que
+  empiezan y acaban en cero (si no, chasquean).
+- Todo nombre que `Game` pide al banco existe: una partida automática de 7 minutos
+  disparó `launch`, `paddle`, `wall`, `brick`, `break`, `powerup` y `level`, y los
+  sonidos de vida perdida y game over se probaron aparte.
+- `BallReport` informa de pared y de paleta en los casos forzados a mano.
+- La sacudida se calma sola, la más fuerte gana sobre la más débil, y —el caso que
+  motivó el cambio— se calma también en game over y en nivel completado, pero **no**
+  en pausa.
+- Arrancando con el driver de audio roto a propósito: `enabled = False` y diez
+  segundos de partida sin un solo error.
+- Las pruebas de las fases 3 y 4 siguen pasando enteras.
+
+---
+
 ## Ideas para fases siguientes
 
-- **Fase 5 — Sonido y efectos visuales:** rebotes, rotura, cápsula recogida; partículas
-  y sacudida de pantalla.
 - **Fase 6 — Persistencia y remate:** guardar el récord en disco, tabla de mejores
   puntuaciones, transiciones entre niveles.
+- **Fase 7 — Control y accesibilidad:** manejar la paleta con el ratón, ajustar el
+  volumen desde el menú, recordar si el sonido quedó silenciado.

@@ -2,11 +2,13 @@
 
 import math
 import random
+from collections import namedtuple
 
 import pygame
 
 from settings import (
-    WIDTH, HEIGHT, PLAY_TOP,
+    WIDTH, HEIGHT, PLAY_TOP, BG_COLOR,
+    PARTICLE_SPEED, PARTICLE_LIFE, PARTICLE_SIZE, PARTICLE_GRAVITY,
     PADDLE_WIDTH, PADDLE_HEIGHT, PADDLE_SPEED, PADDLE_Y, PADDLE_COLOR,
     PADDLE_MIN_WIDTH, PADDLE_MAX_WIDTH,
     BALL_RADIUS, BALL_SPEED, BALL_COLOR, MAX_BOUNCE_ANGLE,
@@ -98,6 +100,12 @@ class Brick:
                 (round(cx + i * gap), self.rect.centery + 3), 2)
 
 
+#: Lo que `Ball.update()` le cuenta a `Game` de este fotograma:
+#: los ladrillos tocados, si la pelota se ha salido por abajo, y contra qué ha
+#: rebotado ("wall" o "paddle") para que el juego sepa qué sonido poner.
+BallReport = namedtuple("BallReport", "bricks lost bounces")
+
+
 class Ball:
     def __init__(self, paddle=None):
         self.radius = BALL_RADIUS
@@ -154,23 +162,26 @@ class Ball:
     def update(self, dt, paddle, bricks):
         """Mueve la pelota y resuelve colisiones.
 
-        Devuelve (ladrillos_golpeados, pelota_perdida).
+        Devuelve un `BallReport`: informa de lo ocurrido, no lo aplica.
         """
         if self.stuck:
             self._follow(paddle)
-            return [], False
+            return BallReport([], False, [])
 
         r = self.radius
         hit = []
+        bounces = []
 
         # --- Movimiento en X y sus colisiones ---
         self.pos.x += self.vel.x * dt
         if self.pos.x - r < 0:
             self.pos.x = r
             self.vel.x = abs(self.vel.x)
+            bounces.append("wall")
         elif self.pos.x + r > WIDTH:
             self.pos.x = WIDTH - r
             self.vel.x = -abs(self.vel.x)
+            bounces.append("wall")
 
         brick = self._first_collision(bricks)
         if brick:
@@ -186,6 +197,7 @@ class Ball:
         if self.pos.y - r < PLAY_TOP:
             self.pos.y = PLAY_TOP + r
             self.vel.y = abs(self.vel.y)
+            bounces.append("wall")
 
         brick = self._first_collision([b for b in bricks if b not in hit])
         if brick:
@@ -201,9 +213,10 @@ class Ball:
                 and self.pos.y < paddle.rect.bottom
                 and self.rect.colliderect(paddle.rect)):
             self._bounce_on_paddle(paddle)
+            bounces.append("paddle")
 
         lost = self.pos.y - r > HEIGHT
-        return hit, lost
+        return BallReport(hit, lost, bounces)
 
     def _first_collision(self, bricks):
         ball_rect = self.rect
@@ -269,3 +282,38 @@ class PowerUp:
         letter = _capsule_font().render(
             POWERUP_LETTERS[self.kind], True, POWERUP_TEXT_COLOR)
         surface.blit(letter, letter.get_rect(center=self.rect.center))
+
+
+class Particle:
+    """Trocito que salta de un ladrillo roto y se apaga solo.
+
+    No colisiona con nada: es decoración, y por eso puede haber muchas sin que
+    cueste nada. Se dibuja con rectángulos enteros, así que aquí la posición
+    float no se refleja en ningún `Rect`, se redondea al dibujar.
+    """
+
+    def __init__(self, x, y, color):
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(*PARTICLE_SPEED)
+        self.pos = pygame.Vector2(x, y)
+        self.vel = pygame.Vector2(math.cos(angle) * speed, math.sin(angle) * speed)
+        self.color = color
+        self.size = random.randint(*PARTICLE_SIZE)
+        self.life = self.max_life = random.uniform(*PARTICLE_LIFE)
+
+    @property
+    def alive(self):
+        return self.life > 0
+
+    def update(self, dt):
+        self.vel.y += PARTICLE_GRAVITY * dt
+        self.pos += self.vel * dt
+        self.life -= dt
+
+    def draw(self, surface):
+        # Se apaga mezclándose con el fondo; así no hace falta capa con alfa
+        fade = max(0.0, self.life / self.max_life)
+        color = tuple(round(bg + (c - bg) * fade)
+                      for c, bg in zip(self.color, BG_COLOR))
+        surface.fill(color, (round(self.pos.x), round(self.pos.y),
+                             self.size, self.size))

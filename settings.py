@@ -152,3 +152,51 @@ LEVEL_LAYOUTS = [
         "..GGGGGG..",
     ]),
 ]
+
+# ---------------------------------------------------------------------------
+# Fase 5: sonido y efectos visuales
+# ---------------------------------------------------------------------------
+# El juego no lleva archivos de audio: los sonidos se sintetizan al arrancar a
+# partir de estas recetas. Cada sonido es una lista de tramos que suenan
+# seguidos; de cada tramo solo "ms" es obligatorio.
+#   freq   Hz iniciales (0 = silencio)
+#   to     Hz finales, si el tono debe barrer de uno a otro
+#   shape  "square" (seco, arcade), "triangle" (suave) o "sine"
+#   vol    volumen relativo del tramo (0-1)
+#   decay  caída del volumen dentro del tramo (0 = plano, 10 = muy percusivo)
+SOUND_SAMPLE_RATE = 44100
+SOUND_BUFFER = 512           # muestras por bloque; bajo = menos retardo
+SOUND_VOLUME = 0.35          # volumen maestro
+SOUND_RECIPES = {
+    "launch":   [{"freq": 300, "to": 760, "ms": 130, "shape": "triangle", "decay": 2}],
+    "paddle":   [{"freq": 440, "ms": 60, "vol": 0.9, "decay": 6}],
+    "wall":     [{"freq": 300, "ms": 45, "vol": 0.6, "decay": 8}],
+    "brick":    [{"freq": 170, "ms": 55, "vol": 0.7, "decay": 11}],
+    "break":    [{"freq": 900, "to": 380, "ms": 95, "decay": 5}],
+    "powerup":  [{"freq": 660, "ms": 55, "shape": "triangle", "decay": 3},
+                 {"freq": 880, "ms": 55, "shape": "triangle", "decay": 3},
+                 {"freq": 1170, "ms": 90, "shape": "triangle", "decay": 4}],
+    "lose":     [{"freq": 520, "to": 110, "ms": 380, "shape": "triangle", "decay": 2.5}],
+    "level":    [{"freq": 523, "ms": 90, "shape": "triangle", "decay": 2},
+                 {"freq": 659, "ms": 90, "shape": "triangle", "decay": 2},
+                 {"freq": 784, "ms": 90, "shape": "triangle", "decay": 2},
+                 {"freq": 1047, "ms": 260, "shape": "triangle", "decay": 3}],
+    "over":     [{"freq": 392, "ms": 170, "shape": "triangle", "decay": 1.5},
+                 {"freq": 330, "ms": 170, "shape": "triangle", "decay": 1.5},
+                 {"freq": 262, "ms": 170, "shape": "triangle", "decay": 1.5},
+                 {"freq": 196, "ms": 420, "shape": "triangle", "decay": 2.5}],
+}
+
+# Partículas: trocitos que saltan del ladrillo
+PARTICLE_BREAK_COUNT = 10    # al romperlo
+PARTICLE_HIT_COUNT = 3       # al golpearlo sin romperlo
+PARTICLE_LOST_COUNT = 14     # al perder la pelota
+PARTICLE_SPEED = (70, 280)   # rango de velocidad inicial en píxeles/s
+PARTICLE_LIFE = (0.25, 0.6)  # rango de duración en segundos
+PARTICLE_SIZE = (2, 5)       # rango de lado en píxeles
+PARTICLE_GRAVITY = 700       # píxeles/s² hacia abajo
+MAX_PARTICLES = 400          # tope de seguridad
+
+# Sacudida de pantalla: (píxeles, segundos)
+SHAKE_ON_BREAK = (2.5, 0.08)
+SHAKE_ON_LIFE_LOST = (9, 0.35)

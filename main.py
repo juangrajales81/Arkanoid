@@ -1,4 +1,4 @@
-"""Arkanoid - Fase 4: tipos de ladrillo y diseños de nivel."""
+"""Arkanoid - Fase 5: sonido, partículas y sacudida de pantalla."""
 
 import random
 from enum import Enum, auto
@@ -8,7 +8,7 @@ import pygame
 from settings import (
     WIDTH, HEIGHT, FPS, TITLE, BG_COLOR, TEXT_COLOR, DIM_TEXT_COLOR,
     HUD_HEIGHT, HUD_LINE_COLOR, OVERLAY_COLOR,
-    START_LIVES, SPEED_INCREASE_PER_LEVEL, BALL_SPEED,
+    START_LIVES, SPEED_INCREASE_PER_LEVEL, BALL_SPEED, BALL_COLOR,
     BRICK_HEIGHT, BRICK_GAP, BRICK_TOP, BRICK_SIDE_MARGIN,
     BRICK_TYPES, EMPTY_CELL, LEVEL_LAYOUTS,
     HITS_BONUS_EVERY_LEVELS, MAX_EXTRA_HITS,
@@ -17,8 +17,11 @@ from settings import (
     POWERUP_KINDS, POWERUP_WEIGHTS, TIMED_POWERUPS,
     POWERUP_LETTERS, POWERUP_NAMES, POWERUP_COLORS,
     BALL_SLOW_FACTOR, MULTIBALL_EXTRA, MULTIBALL_SPREAD, MAX_LIVES,
+    PARTICLE_BREAK_COUNT, PARTICLE_HIT_COUNT, PARTICLE_LOST_COUNT,
+    MAX_PARTICLES, SHAKE_ON_BREAK, SHAKE_ON_LIFE_LOST,
 )
-from entities import Paddle, Ball, Brick, PowerUp
+from audio import SoundBank
+from entities import Paddle, Ball, Brick, PowerUp, Particle
 
 
 class State(Enum):
@@ -71,6 +74,9 @@ class Game:
         # Capa semitransparente reutilizable para los menús superpuestos
         self.overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         self.overlay.fill(OVERLAY_COLOR)
+        # La zona de juego se dibuja aparte para poder sacudirla sin mover el HUD
+        self.scene = pygame.Surface((WIDTH, HEIGHT))
+        self.sounds = SoundBank()
 
         self.high_score = 0
         self.state = State.MENU
@@ -90,6 +96,10 @@ class Game:
         self.bricks = build_bricks(self.level)
         self.powerups = []          # cápsulas cayendo
         self.effects = {}           # tipo -> segundos que le quedan
+        self.particles = []
+        self.shake_power = 0.0
+        self.shake_time = 0.0
+        self.shake_total = 0.0
 
     def ball_speed(self):
         """Velocidad que deben tener las pelotas ahora mismo."""
@@ -114,15 +124,22 @@ class Game:
 
     def launch_balls(self):
         speed = self.ball_speed()
+        launched = False
         for ball in self.balls:
+            launched = launched or ball.stuck
             ball.launch(speed)
+        if launched:
+            self.sounds.play("launch")
 
     def lose_life(self):
         self.lives -= 1
+        self.add_shake(*SHAKE_ON_LIFE_LOST)
         if self.lives <= 0:
             self.high_score = max(self.high_score, self.score)
             self.state = State.GAME_OVER
+            self.sounds.play("over")
         else:
+            self.sounds.play("lose")
             # Se pierden los power-ups activos y las cápsulas que estaban cayendo
             self.powerups.clear()
             self.clear_effects()
@@ -132,9 +149,15 @@ class Game:
     def hit_brick(self, brick):
         """Aplica un golpe. Solo puntúa y suelta cápsula si el ladrillo se rompe."""
         if not brick.take_hit():
-            return      # aún aguanta, o es indestructible
+            # Aún aguanta, o es indestructible: solo un golpe seco y chispas
+            self.sounds.play("brick")
+            self.spawn_particles(brick.rect, brick.color, PARTICLE_HIT_COUNT)
+            return
         self.bricks.remove(brick)
         self.score += brick.points
+        self.sounds.play("break")
+        self.spawn_particles(brick.rect, brick.color, PARTICLE_BREAK_COUNT)
+        self.add_shake(*SHAKE_ON_BREAK)
         if random.random() < POWERUP_DROP_CHANCE:
             kind = random.choices(POWERUP_KINDS, POWERUP_WEIGHTS)[0]
             self.powerups.append(PowerUp(kind, brick.rect.centerx, brick.rect.centery))
@@ -148,6 +171,7 @@ class Game:
     def apply_powerup(self, kind):
         """Aplica el efecto de una cápsula recogida."""
         self.score += POWERUP_POINTS
+        self.sounds.play("powerup")
 
         if kind == "WIDE":
             self.effects.pop("SHRINK", None)      # ANCHA y ESTRECHA se anulan
@@ -200,6 +224,32 @@ class Game:
                 remaining.append(capsule)
         self.powerups = remaining
 
+    # ---------- Efectos visuales ----------
+    def spawn_particles(self, rect, color, count):
+        if len(self.particles) >= MAX_PARTICLES:
+            return
+        self.particles.extend(
+            Particle(rect.centerx, rect.centery, color) for _ in range(count))
+
+    def update_particles(self, dt):
+        for particle in self.particles:
+            particle.update(dt)
+        self.particles = [p for p in self.particles if p.alive]
+
+    def add_shake(self, power, seconds):
+        """Se queda con la sacudida más fuerte de las que haya en marcha."""
+        if power * seconds > self.shake_power * self.shake_time:
+            self.shake_power = power
+            self.shake_total = self.shake_time = seconds
+
+    def shake_offset(self):
+        """Desplazamiento de la zona de juego; se va calmando solo."""
+        if self.shake_time <= 0:
+            return (0, 0)
+        power = self.shake_power * (self.shake_time / self.shake_total)
+        return (round(random.uniform(-power, power)),
+                round(random.uniform(-power, power)))
+
     # ---------- Entrada ----------
     def handle_events(self):
         """Procesa eventos según el estado. Devuelve False para cerrar el juego."""
@@ -214,6 +264,11 @@ class Game:
             if event.type != pygame.KEYDOWN:
                 continue
             key = event.key
+
+            # El silencio se conmuta en cualquier estado
+            if key == pygame.K_m:
+                self.sounds.toggle_mute()
+                continue
 
             if self.state == State.MENU:
                 if key == pygame.K_SPACE:
@@ -257,7 +312,12 @@ class Game:
 
     # ---------- Lógica ----------
     def update(self, dt, direction):
-        # Solo hay simulación mientras se juega; los demás estados congelan todo
+        # La decoración corre en todos los estados menos en pausa: si no, una
+        # sacudida iniciada justo antes del game over temblaría para siempre.
+        if self.state != State.PAUSED:
+            self.update_particles(dt)
+            self.shake_time = max(0.0, self.shake_time - dt)
+        # La simulación, en cambio, solo avanza mientras se juega
         if self.state != State.PLAYING:
             return
         self.paddle.update(dt, direction)
@@ -267,18 +327,27 @@ class Game:
         # Si la última pelota se perdió con el último ladrillo, manda el game over
         if self.state == State.PLAYING and self.level_cleared():
             self.state = State.LEVEL_COMPLETE
+            self.sounds.play("level")
 
     def update_balls(self, dt):
         """Mueve cada pelota; solo se pierde una vida cuando no queda ninguna."""
         survivors = []
+        bounces = set()
         for ball in self.balls:
-            hit, lost = ball.update(dt, self.paddle, self.bricks)
-            for brick in hit:
+            report = ball.update(dt, self.paddle, self.bricks)
+            # Un solo sonido por tipo de rebote aunque choquen varias pelotas
+            bounces.update(report.bounces)
+            for brick in report.bricks:
                 # Se resuelve al momento para que las demás pelotas de este frame
                 # vean ya el ladrillo roto y no lo vuelvan a puntuar
                 self.hit_brick(brick)
-            if not lost:
+            if report.lost:
+                edge = pygame.Rect(round(ball.pos.x), HEIGHT - 6, 1, 1)
+                self.spawn_particles(edge, BALL_COLOR, PARTICLE_LOST_COUNT)
+            else:
                 survivors.append(ball)
+        for bounce in bounces:
+            self.sounds.play(bounce)
         self.balls = survivors
         if not self.balls:
             self.lose_life()
@@ -307,6 +376,9 @@ class Game:
             rect = surf.get_rect(midleft=(x, HEIGHT - 16))
             self.screen.blit(surf, rect)
             x = rect.right + 16
+        if self.sounds.muted or not self.sounds.enabled:
+            muted = self.small_font.render("SIN SONIDO", True, DIM_TEXT_COLOR)
+            self.screen.blit(muted, muted.get_rect(midright=(WIDTH - 16, HEIGHT - 16)))
 
     def draw_powerup_legend(self, y):
         """Leyenda del menú: qué hace cada letra de cápsula."""
@@ -323,15 +395,18 @@ class Game:
             x += surf.get_width() + gap
 
     def draw_playfield(self):
+        """Dibuja la zona de juego aparte y la vuelca aplicando la sacudida."""
+        self.scene.fill(BG_COLOR)
         for brick in self.bricks:
-            brick.draw(self.screen)
+            brick.draw(self.scene)
         for capsule in self.powerups:
-            capsule.draw(self.screen)
-        self.paddle.draw(self.screen)
+            capsule.draw(self.scene)
+        for particle in self.particles:
+            particle.draw(self.scene)
+        self.paddle.draw(self.scene)
         for ball in self.balls:
-            ball.draw(self.screen)
-        self.draw_hud()
-        self.draw_active_effects()
+            ball.draw(self.scene)
+        self.screen.blit(self.scene, self.shake_offset())
 
     def draw_overlay(self, title, lines):
         """Oscurece el juego y muestra un título con líneas de ayuda."""
@@ -344,7 +419,7 @@ class Game:
     def draw_menu(self):
         self.draw_text("ARKANOID", self.big_font, (WIDTH / 2, 200))
         self.draw_text("ESPACIO para empezar", self.font, (WIDTH / 2, 290))
-        self.draw_text("Flechas o A/D: mover    P: pausa    ESC: salir",
+        self.draw_text("Flechas o A/D: mover   P: pausa   M: sonido   ESC: salir",
                        self.font, (WIDTH / 2, 330), DIM_TEXT_COLOR)
         self.draw_text("Atrapa las cápsulas que sueltan los ladrillos",
                        self.font, (WIDTH / 2, 390), DIM_TEXT_COLOR)
@@ -363,6 +438,8 @@ class Game:
             return
 
         self.draw_playfield()
+        self.draw_hud()
+        self.draw_active_effects()
 
         if self.state == State.PLAYING and any(ball.stuck for ball in self.balls):
             self.draw_text("ESPACIO para lanzar", self.font, (WIDTH / 2, HEIGHT / 2 + 80))

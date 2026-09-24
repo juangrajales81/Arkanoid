@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Arkanoid/breakout clone in Python + pygame-ce. Three modules, no package layout, no test suite, no build step.
+Arkanoid/breakout clone in Python + pygame-ce. Four modules, no package layout, no test suite, no build step. pygame-ce is the only dependency — the sound is synthesized at startup rather than shipped as files, so there is deliberately no numpy and no `assets/`.
 
 Git repo on branch `main`, remote `origin` → `github.com/juangrajales81/Arkanoid`. [README.md](README.md) is the public landing page (what the game is, how to run it, controls); [FASES.md](FASES.md) records what each development phase added and why. Finishing a phase means updating **both**, plus this file when the architecture moved.
 
@@ -25,11 +25,13 @@ All comments, docstrings, and on-screen UI text are in **Spanish** (`PUNTOS`, `V
 
 **[settings.py](settings.py)** is the single tuning surface. Every constant is imported *by name* (`from settings import WIDTH, PADDLE_SPEED, ...`) in both other modules, so renaming or removing a constant breaks imports in two places. Add new tunables here rather than hardcoding them in entities or the game loop.
 
-**[entities.py](entities.py)** — `Paddle`, `Brick`, `Ball`, `PowerUp`. These are dumb: they move, collide, and draw, but never touch score, lives, or state. `PowerUp` only knows its `kind` string and how to fall; what that kind *does* lives in `Game.apply_powerup()`. `Brick.take_hit()` decrements its own durability and reports whether it broke — it still does not know what a point is.
+**[entities.py](entities.py)** — `Paddle`, `Brick`, `Ball`, `PowerUp`, `Particle`. These are dumb: they move, collide, and draw, but never touch score, lives, or state. `PowerUp` only knows its `kind` string and how to fall; what that kind *does* lives in `Game.apply_powerup()`. `Brick.take_hit()` decrements its own durability and reports whether it broke — it still does not know what a point is. `Particle` is pure decoration: it collides with nothing and expires on its own.
 
-**[main.py](main.py)** — `Game` owns everything else: the `State` enum machine (MENU / PLAYING / PAUSED / LEVEL_COMPLETE / GAME_OVER), score, lives, level, the `self.balls` / `self.powerups` lists, the `self.effects` timer dict, and the `build_bricks(level)` grid factory.
+**[audio.py](audio.py)** — `SoundBank` renders every effect from `SOUND_RECIPES` into in-memory WAVs at startup (~0.2 s) and plays them by name. `Game` only ever calls `sounds.play("break")`.
 
-The boundary matters: `Ball.update(dt, paddle, bricks)` *returns* `(hit_bricks, lost)` instead of mutating the game. `Game.update()` is what removes bricks, adds points, and calls `lose_life()`. Keep new entity logic on the reporting side of that line.
+**[main.py](main.py)** — `Game` owns everything else: the `State` enum machine (MENU / PLAYING / PAUSED / LEVEL_COMPLETE / GAME_OVER), score, lives, level, the `self.balls` / `self.powerups` lists, the `self.effects` timer dict, `self.particles`, the screen-shake timer, the `SoundBank`, and the `build_bricks(level)` grid factory.
+
+The boundary matters: `Ball.update(dt, paddle, bricks)` *returns* a `BallReport(bricks, lost, bounces)` instead of mutating the game. `Game.update()` is what removes bricks, adds points, plays sounds, and calls `lose_life()`. Keep new entity logic on the reporting side of that line — `bounces` exists precisely so the ball can report "I hit a wall" without knowing that walls make a noise.
 
 ### Float positions mirrored into Rects
 
@@ -62,6 +64,18 @@ A level is an ASCII grid in `LEVEL_LAYOUTS` — `(name, rows)`, one character pe
 Because indestructible bricks stay on screen forever, **the end-of-level test is `Game.level_cleared()` (`not any(brick.breakable ...)`), never `not self.bricks`**. A layout with no breakable brick at all would complete instantly.
 
 Layouts cycle with `layout_for(level)`, so `level` grows without bound while the grid repeats. Difficulty now moves on two axes: ball speed per level (above), and multi-hit bricks gaining `+1 hit` every `HITS_BONUS_EVERY_LEVELS` levels up to `MAX_EXTRA_HITS`.
+
+### Sound is synthesized, never shipped
+
+`SOUND_RECIPES` in settings describes each effect as a list of tone segments (frequency, optional sweep target, duration, waveform, volume, decay); `audio.py` renders them to 16-bit mono WAVs in a `BytesIO` and hands them to `pygame.mixer.Sound`. Adding or retuning a sound is a settings edit, not a new file. `SoundBank` re-inits the mixer to mono 16-bit at `SOUND_SAMPLE_RATE` so no format conversion happens at load.
+
+**A machine with no audio device must still run the game.** `SoundBank._start_mixer()` catches `pygame.error`, leaves `enabled = False`, and `play()` becomes a no-op. Never call `pygame.mixer` directly from `Game`. `M` toggles mute in every state.
+
+### Screen shake draws through a separate surface
+
+The playfield is drawn onto `self.scene` and blitted to the screen at `shake_offset()`; the HUD is drawn straight onto the screen afterwards, so it never wobbles. Both surfaces start from `BG_COLOR`, which is why the strip the offset exposes is invisible.
+
+`Game.update()` now has two tiers: decoration (particles, shake decay) runs in every state **except `PAUSED`**, the simulation only in `PLAYING`. If the shake decay sat inside the `PLAYING` guard, a shake started on the frame the last life is lost would jitter forever behind the game-over overlay.
 
 ### Loop and input
 
